@@ -1,0 +1,8 @@
+{
+  "customer_id": "customerID",
+  "tenure": "tenure",
+  "monthly_charges": "MonthlyCharges",
+  "total_charges": "TotalCharges",
+  "churn": "Churn",
+  "contract_type": "Contract"
+}
