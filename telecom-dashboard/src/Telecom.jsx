@@ -35,12 +35,39 @@ const Telecom = () => {
   const [filterRisk, setFilterRisk] = useState('all');
   const [filterAnomaly, setFilterAnomaly] = useState('all');
   const [error, setError] = useState(null);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({
+    type: 'comprehensive',
+    frequency: 'weekly',
+    recipients: ''
+  });
+  const [showInvestigationModal, setShowInvestigationModal] = useState(false);
+  const [investigationData, setInvestigationData] = useState(null);
+  const [investigationLoading, setInvestigationLoading] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState([]);
 
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 30000); // Refresh every 30 seconds
     return () => clearInterval(interval);
   }, []);
+
+  // Close notifications dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showNotifications && !event.target.closest('.notification-dropdown')) {
+        setShowNotifications(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showNotifications]);
 
   // const fetchData = async () => {
   //   try {
@@ -55,25 +82,34 @@ const Telecom = () => {
     try {
       setLoading(true);
       setError(null);
+      
+      console.log('Fetching data from:', import.meta.env.VITE_BASE_URL);
 
-      const [customersRes, analyticsRes, alertsRes] = await Promise.all([
-        fetch(`${import.meta.env.VITE_BASE_URL}/customers`).catch(err => {
+      const [customersRes, analyticsRes, alertsRes, notificationsRes] = await Promise.all([
+        fetch(`${import.meta.env.VITE_BASE_URL}/api/customers`).catch(err => {
           console.error('Failed to fetch customers:', err);
           return null;
         }),
-        fetch(`${import.meta.env.VITE_BASE_URL}/analytics`).catch(err => {
+        fetch(`${import.meta.env.VITE_BASE_URL}/api/analytics`).catch(err => {
           console.error('Failed to fetch analytics:', err);
           return null;
         }),
-        fetch(`${import.meta.env.VITE_BASE_URL}/alerts`).catch(err => {
+        fetch(`${import.meta.env.VITE_BASE_URL}/api/alerts`).catch(err => {
           console.error('Failed to fetch alerts:', err);
+          return null;
+        }),
+        fetch(`${import.meta.env.VITE_BASE_URL}/api/notifications`).catch(err => {
+          console.error('Failed to fetch notifications:', err);
           return null;
         })
       ]);
 
+      console.log('Responses received:', { customersRes, analyticsRes, alertsRes, notificationsRes });
+
       // Handle customers response
       if (customersRes && customersRes.ok) {
         const customersData = await customersRes.json();
+        console.log('Customers data:', customersData);
         setCustomers(customersData.customers || []);
       } else {
         console.error('Failed to fetch customers');
@@ -83,6 +119,7 @@ const Telecom = () => {
       // Handle analytics response
       if (analyticsRes && analyticsRes.ok) {
         const analyticsData = await analyticsRes.json();
+        console.log('Analytics data:', analyticsData);
         setAnalytics(analyticsData);
       } else {
         console.error('Failed to fetch analytics');
@@ -104,10 +141,21 @@ const Telecom = () => {
       // Handle alerts response
       if (alertsRes && alertsRes.ok) {
         const alertsData = await alertsRes.json();
+        console.log('Alerts data:', alertsData);
         setAlerts(alertsData.alerts || []);
       } else {
         console.error('Failed to fetch alerts');
         setAlerts([]);
+      }
+
+      // Handle notifications response
+      if (notificationsRes && notificationsRes.ok) {
+        const notificationsData = await notificationsRes.json();
+        console.log('Notifications data:', notificationsData);
+        setNotifications(notificationsData.notifications || []);
+      } else {
+        console.error('Failed to fetch notifications');
+        setNotifications([]);
       }
 
     } catch (error) {
@@ -188,6 +236,194 @@ const Telecom = () => {
     return alerts.filter(a => a && a.actionRequired).length;
   };
 
+  const handleExportCustomers = async () => {
+    try {
+      setExportLoading(true);
+      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/export/customers`);
+      
+      if (!response.ok) {
+        throw new Error('Export failed');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `customer_data_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Failed to export customer data. Please try again.');
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const handleGenerateReport = async () => {
+    try {
+      setReportLoading(true);
+      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/reports/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'comprehensive'
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Report generation failed');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `analytics_report_${new Date().toISOString().slice(0, 10)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+    } catch (error) {
+      console.error('Report generation error:', error);
+      alert('Failed to generate report. Please try again.');
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const handleScheduleReport = async () => {
+    try {
+      const recipients = scheduleForm.recipients.split(',').map(email => email.trim()).filter(email => email);
+      
+      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/reports/schedule`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: scheduleForm.type,
+          frequency: scheduleForm.frequency,
+          recipients: recipients
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to schedule report');
+      }
+      
+      const result = await response.json();
+      alert('Report scheduled successfully!');
+      setShowScheduleModal(false);
+      setScheduleForm({
+        type: 'comprehensive',
+        frequency: 'weekly',
+        recipients: ''
+      });
+      
+    } catch (error) {
+      console.error('Schedule error:', error);
+      alert('Failed to schedule report. Please try again.');
+    }
+  };
+
+  const handleInvestigateAlert = async (alertId) => {
+    try {
+      setInvestigationLoading(true);
+      setShowInvestigationModal(true);
+      
+      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/alerts/${alertId}/investigate`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to load investigation data');
+      }
+      
+      const data = await response.json();
+      setInvestigationData(data);
+      
+    } catch (error) {
+      console.error('Investigation error:', error);
+      alert('Failed to load investigation data. Please try again.');
+      setShowInvestigationModal(false);
+    } finally {
+      setInvestigationLoading(false);
+    }
+  };
+
+  const handleAlertAction = async (alertId, action, notes = '') => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/alerts/${alertId}/actions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: action,
+          notes: notes
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to take action');
+      }
+      
+      const result = await response.json();
+      alert(`Alert ${action}d successfully!`);
+      
+      // Refresh alerts
+      fetchData();
+      setShowInvestigationModal(false);
+      
+    } catch (error) {
+      console.error('Action error:', error);
+      alert('Failed to take action. Please try again.');
+    }
+  };
+
+  const markNotificationAsRead = async (notificationId) => {
+    try {
+      await fetch(`${import.meta.env.VITE_BASE_URL}/api/notifications/${notificationId}/read`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      // Update local state
+      const updatedNotifications = notifications.map(n =>
+        n.id === notificationId ? { ...n, read: true } : n
+      );
+      setNotifications(updatedNotifications);
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      await fetch(`${import.meta.env.VITE_BASE_URL}/api/notifications/mark-all-read`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      // Update local state
+      const updatedNotifications = notifications.map(n => ({ ...n, read: true }));
+      setNotifications(updatedNotifications);
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+    }
+  };
+
   if (loading && !analytics) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -220,12 +456,96 @@ const Telecom = () => {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="relative">
-                <Bell className="h-6 w-6 text-gray-600 cursor-pointer hover:text-gray-800" />
-                {Array.isArray(alerts) && alerts.length > 0 && (
+              <div className="relative notification-dropdown">
+                <Bell 
+                  className="h-6 w-6 text-gray-600 cursor-pointer hover:text-gray-800" 
+                  onClick={() => setShowNotifications(!showNotifications)}
+                />
+                {Array.isArray(notifications) && notifications.filter(n => !n.read).length > 0 && (
                   <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                    {alerts.length}
+                    {notifications.filter(n => !n.read).length}
                   </span>
+                )}
+                
+                {/* Notifications Dropdown */}
+                {showNotifications && (
+                  <div className="absolute right-0 top-8 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-96 overflow-y-auto">
+                    <div className="p-4 border-b border-gray-200">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold text-gray-900">Notifications</h3>
+                        <button
+                          onClick={markAllNotificationsAsRead}
+                          className="text-sm text-blue-600 hover:text-blue-800"
+                        >
+                          Mark all read
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="max-h-64 overflow-y-auto">
+                      {notifications.length > 0 ? (
+                        notifications.map(notification => (
+                          <div
+                            key={notification.id}
+                            className={`p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${
+                              !notification.read ? 'bg-blue-50' : ''
+                            }`}
+                            onClick={() => markNotificationAsRead(notification.id)}
+                          >
+                            <div className="flex items-start space-x-3">
+                              <div className={`flex-shrink-0 w-2 h-2 rounded-full mt-2 ${
+                                notification.severity === 'critical' ? 'bg-red-500' :
+                                notification.severity === 'high' ? 'bg-orange-500' :
+                                notification.severity === 'medium' ? 'bg-yellow-500' : 'bg-blue-500'
+                              }`}></div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between">
+                                  <p className={`text-sm font-medium ${!notification.read ? 'text-gray-900' : 'text-gray-600'}`}>
+                                    {notification.title}
+                                  </p>
+                                  {!notification.read && (
+                                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                                  )}
+                                </div>
+                                <p className="text-sm text-gray-500 mt-1 line-clamp-2">
+                                  {notification.message}
+                                </p>
+                                <div className="flex items-center justify-between mt-2">
+                                  <p className="text-xs text-gray-400">
+                                    {new Date(notification.timestamp).toLocaleString()}
+                                  </p>
+                                  {notification.actionRequired && (
+                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                      Action Required
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-8 text-center text-gray-500">
+                          <Bell className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                          <p className="text-sm">No notifications</p>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {notifications.length > 0 && (
+                      <div className="p-3 border-t border-gray-200 bg-gray-50">
+                        <button
+                          onClick={() => {
+                            setActiveTab('alerts');
+                            setShowNotifications(false);
+                          }}
+                          className="w-full text-center text-sm text-blue-600 hover:text-blue-800 font-medium"
+                        >
+                          View All Alerts
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
               <button
@@ -614,7 +934,10 @@ const Telecom = () => {
                               Action Required
                             </span>
                           )}
-                          <button className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                          <button 
+                            onClick={() => handleInvestigateAlert(alert.id)}
+                            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                          >
                             Investigate
                           </button>
                         </div>
@@ -671,15 +994,38 @@ const Telecom = () => {
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Export & Reports</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <button className="flex items-center justify-center space-x-2 p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
-                  <Download className="h-5 w-5 text-gray-600" />
-                  <span className="text-gray-600">Export Customer Data</span>
+                <button 
+                  onClick={handleExportCustomers}
+                  disabled={exportLoading}
+                  className="flex items-center justify-center space-x-2 p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {exportLoading ? (
+                    <RefreshCw className="h-5 w-5 text-gray-600 animate-spin" />
+                  ) : (
+                    <Download className="h-5 w-5 text-gray-600" />
+                  )}
+                  <span className="text-gray-600">
+                    {exportLoading ? 'Exporting...' : 'Export Customer Data'}
+                  </span>
                 </button>
-                <button className="flex items-center justify-center space-x-2 p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
-                  <BarChart3 className="h-5 w-5 text-gray-600" />
-                  <span className="text-gray-600">Generate Analytics Report</span>
+                <button 
+                  onClick={handleGenerateReport}
+                  disabled={reportLoading}
+                  className="flex items-center justify-center space-x-2 p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {reportLoading ? (
+                    <RefreshCw className="h-5 w-5 text-gray-600 animate-spin" />
+                  ) : (
+                    <BarChart3 className="h-5 w-5 text-gray-600" />
+                  )}
+                  <span className="text-gray-600">
+                    {reportLoading ? 'Generating...' : 'Generate Analytics Report'}
+                  </span>
                 </button>
-                <button className="flex items-center justify-center space-x-2 p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
+                <button 
+                  onClick={() => setShowScheduleModal(true)}
+                  className="flex items-center justify-center space-x-2 p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
+                >
                   <Calendar className="h-5 w-5 text-gray-600" />
                   <span className="text-gray-600">Schedule Report</span>
                 </button>
@@ -688,6 +1034,279 @@ const Telecom = () => {
           </div>
         )}
       </div>
+
+      {/* Schedule Report Modal */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Schedule Report</h3>
+              <button
+                onClick={() => setShowScheduleModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <XCircle className="h-6 w-6" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Report Type
+                </label>
+                <select
+                  value={scheduleForm.type}
+                  onChange={(e) => setScheduleForm({...scheduleForm, type: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="comprehensive">Comprehensive Analytics</option>
+                  <option value="risk_analysis">Risk Analysis</option>
+                  <option value="anomaly_report">Anomaly Report</option>
+                  <option value="executive_summary">Executive Summary</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Frequency
+                </label>
+                <select
+                  value={scheduleForm.frequency}
+                  onChange={(e) => setScheduleForm({...scheduleForm, frequency: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Recipients (comma-separated emails)
+                </label>
+                <textarea
+                  value={scheduleForm.recipients}
+                  onChange={(e) => setScheduleForm({...scheduleForm, recipients: e.target.value})}
+                  placeholder="admin@company.com, manager@company.com"
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => setShowScheduleModal(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleScheduleReport}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Schedule Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Investigation Modal */}
+      {showInvestigationModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-gray-900">Alert Investigation</h2>
+              <button
+                onClick={() => setShowInvestigationModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <XCircle className="h-6 w-6" />
+              </button>
+            </div>
+            
+            {investigationLoading ? (
+              <div className="p-8 text-center">
+                <RefreshCw className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
+                <p className="text-gray-600">Loading investigation data...</p>
+              </div>
+            ) : investigationData ? (
+              <div className="p-6 space-y-6">
+                {/* Customer Profile */}
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Customer Profile</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-500">Customer ID</p>
+                      <p className="font-medium">{investigationData.customerProfile.id}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">Risk Level</p>
+                      <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getRiskColor(investigationData.customerProfile.riskLevel)}`}>
+                        {investigationData.customerProfile.riskLevel}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">Churn Probability</p>
+                      <p className="font-medium text-red-600">{(investigationData.customerProfile.churnProbability * 100).toFixed(1)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">Monthly Charges</p>
+                      <p className="font-medium">${investigationData.customerProfile.monthlyCharges}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">Tenure</p>
+                      <p className="font-medium">{investigationData.customerProfile.tenure} months</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">Complaints</p>
+                      <p className="font-medium">{investigationData.customerProfile.complaints}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Risk Factors */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Risk Factors</h3>
+                  <div className="space-y-3">
+                    {investigationData.riskFactors.map((factor, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <div>
+                          <p className="font-medium text-red-800">{factor.factor}</p>
+                          <p className="text-sm text-red-600">{factor.description}</p>
+                        </div>
+                        <div className="text-right">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            factor.impact === 'High' ? 'bg-red-100 text-red-800' :
+                            factor.impact === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-blue-100 text-blue-800'
+                          }`}>
+                            {factor.impact} Impact
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Recommendations */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Recommended Actions</h3>
+                  <div className="space-y-3">
+                    {investigationData.recommendations.map((rec, index) => (
+                      <div key={index} className="p-4 border border-gray-200 rounded-lg">
+                        <div className="flex items-start justify-between mb-2">
+                          <h4 className="font-medium text-gray-900">{rec.action}</h4>
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            rec.priority === 'Critical' ? 'bg-red-100 text-red-800' :
+                            rec.priority === 'High' ? 'bg-orange-100 text-orange-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {rec.priority}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-2">{rec.description}</p>
+                        <div className="flex items-center space-x-4 text-xs text-gray-500">
+                          <span>Timeline: {rec.timeline}</span>
+                          <span>Impact: {rec.expectedImpact}</span>
+                          <span>Cost: {rec.cost}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Historical Data */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Historical Trends</h3>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Month</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Charges</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Data Usage</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Complaints</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Churn Risk</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {investigationData.historicalData.map((month, index) => (
+                          <tr key={index}>
+                            <td className="px-4 py-2 text-sm text-gray-900">{month.month}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">${month.monthlyCharges}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{month.dataUsage} GB</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{month.complaints}</td>
+                            <td className="px-4 py-2 text-sm">
+                              <span className={`px-2 py-1 rounded text-xs ${
+                                month.churnProbability > 0.7 ? 'bg-red-100 text-red-800' :
+                                month.churnProbability > 0.4 ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-green-100 text-green-800'
+                              }`}>
+                                {(month.churnProbability * 100).toFixed(1)}%
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Similar Cases */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Similar Cases</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {investigationData.similarCases.map((case_, index) => (
+                      <div key={index} className="p-3 border border-gray-200 rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium text-gray-900">{case_.customerId}</span>
+                          <span className="text-sm text-gray-500">{(case_.similarity * 100).toFixed(0)}% similar</span>
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          <p>Risk: {(case_.churnProbability * 100).toFixed(1)}%</p>
+                          <p>Outcome: <span className={case_.outcome === 'Retained' ? 'text-green-600' : 'text-red-600'}>{case_.outcome}</span></p>
+                          <p>Action: {case_.actionTaken}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-end space-x-3 pt-4 border-t border-gray-200">
+                  <button
+                    onClick={() => handleAlertAction(investigationData.alertId, 'resolve', 'Investigated and resolved')}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    Resolve Alert
+                  </button>
+                  <button
+                    onClick={() => handleAlertAction(investigationData.alertId, 'escalate', 'Escalated for further review')}
+                    className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+                  >
+                    Escalate
+                  </button>
+                  <button
+                    onClick={() => setShowInvestigationModal(false)}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-8 text-center text-gray-500">
+                <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                <p>Failed to load investigation data</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
